@@ -5,12 +5,21 @@ import { PriceTracker } from './price-tracker';
 import { TickerRouter } from './ticker-router';
 import { alertEmitter } from './emitter';
 import { AlertEvent } from '../types';
+import { getTopMovers } from './top-movers';
 
-const priceTracker = new PriceTracker(config.symbols as unknown as string[]);
-const tickerRouter = new TickerRouter(priceTracker);
-const wsManager = new WsManager(config.symbols as unknown as string[], (msg) => tickerRouter.handle(msg));
+const SYMBOL_REFRESH_MS = 24 * 60 * 60 * 1000; // refresh symbol list every 24h
 
-// Log every alert to stdout — replace or extend with your own consumer
+async function fetchSymbols(): Promise<string[]> {
+  console.log('[agent] fetching top movers from KuCoin...');
+  const { gainers, losers } = await getTopMovers(25);
+  const symbols = [...new Set([...gainers, ...losers].map(m => m.symbol))].slice(0, 50);
+  console.log(`[agent] top gainers: ${gainers.map(m => m.symbol).join(', ')}`);
+  console.log(`[agent] top losers:  ${losers.map(m => m.symbol).join(', ')}`);
+  return symbols;
+}
+
+let wsManager: WsManager | null = null;
+
 alertEmitter.on('alert', (event: AlertEvent) => {
   const sign = event.direction === 'up' ? '+' : '';
   console.log(
@@ -20,8 +29,15 @@ alertEmitter.on('alert', (event: AlertEvent) => {
   );
 });
 
+async function startAgent(symbols: string[]): Promise<WsManager> {
+  const priceTracker = new PriceTracker(symbols);
+  const tickerRouter = new TickerRouter(priceTracker);
+  const manager = new WsManager(symbols, (msg) => tickerRouter.handle(msg));
+  await manager.connect();
+  return manager;
+}
+
 async function main(): Promise<void> {
-  console.log(`[agent] starting KuCoin market monitor — watching ${config.symbols.length} symbols`);
   console.log(`[agent] thresholds: ±${config.thresholds.join('%, ±')}%`);
   console.log(`[agent] baseline refresh: ${config.baselineRefreshMs / 60000}m | cooldown: ${config.cooldownMs / 60000}m`);
   if (process.env.TELEGRAM_TOKEN) {
@@ -31,18 +47,32 @@ async function main(): Promise<void> {
     console.log(`[agent] hardware notifier: ${process.env.DEVICE_IP}`);
   }
 
-  await wsManager.connect();
+  const symbols = await fetchSymbols();
+  console.log(`[agent] starting KuCoin market monitor — watching ${symbols.length} symbols`);
+  wsManager = await startAgent(symbols);
+
+  // Refresh symbol list daily with fresh top movers
+  setInterval(async () => {
+    console.log('[agent] daily symbol refresh — fetching new top movers...');
+    try {
+      const newSymbols = await fetchSymbols();
+      console.log(`[agent] restarting with ${newSymbols.length} symbols`);
+      wsManager?.disconnect();
+      wsManager = await startAgent(newSymbols);
+    } catch (err) {
+      console.error('[agent] symbol refresh failed, keeping current subscriptions:', err);
+    }
+  }, SYMBOL_REFRESH_MS);
 }
 
-// Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n[agent] shutting down...');
-  wsManager.disconnect();
+  wsManager?.disconnect();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  wsManager.disconnect();
+  wsManager?.disconnect();
   process.exit(0);
 });
 
