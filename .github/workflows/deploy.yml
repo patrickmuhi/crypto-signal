@@ -1,0 +1,198 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Hetzner Server
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_GITHUB_TOKEN: ${{ secrets.DEPLOY_GITHUB_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DEVICE_IP: ${{ secrets.DEVICE_IP }}
+          NODE_ENV: ${{ secrets.NODE_ENV }}
+          PM2_APP_NAME: ${{ secrets.PM2_APP_NAME }}
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          password: ${{ secrets.HETZNER_PASSWORD }}
+          port: ${{ secrets.HETZNER_PORT || 22 }}
+          timeout: 30s
+          debug: true
+          envs: GITHUB_TOKEN,DEPLOY_GITHUB_TOKEN,TELEGRAM_TOKEN,TELEGRAM_CHAT_ID,DEVICE_IP,NODE_ENV,PM2_APP_NAME
+          script: |
+            set -eu
+
+            echo "👤 Current user: $(whoami)"
+            echo "🏠 Home directory: $HOME"
+            echo "📂 Current directory: $(pwd)"
+
+            APP_PATH_RAW="${{ secrets.HETZNER_APP_PATH || '~/apps/crypto-signal' }}"
+
+            if [[ "$APP_PATH_RAW" == ~* ]]; then
+              APP_PATH="${APP_PATH_RAW/#\~/$HOME}"
+            else
+              APP_PATH="$APP_PATH_RAW"
+            fi
+
+            if [[ "$APP_PATH" != /* ]]; then
+              APP_PATH="$(pwd)/$APP_PATH"
+            fi
+
+            echo "📍 Target application path: $APP_PATH"
+
+            if [ ! -d "$APP_PATH" ]; then
+              echo "📁 Directory doesn't exist yet. Creating directory structure..."
+              PARENT_DIR=$(dirname "$APP_PATH")
+              echo "📂 Creating parent directory: $PARENT_DIR"
+              mkdir -p "$PARENT_DIR" || {
+                echo "❌ Failed to create parent directory: $PARENT_DIR"
+                exit 1
+              }
+
+              echo "📥 Cloning repository..."
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+
+              if [ -n "$GITHUB_TOKEN" ] || [ -n "$DEPLOY_GITHUB_TOKEN" ]; then
+                TOKEN="${GITHUB_TOKEN:-$DEPLOY_GITHUB_TOKEN}"
+                echo "   Using token authentication"
+                CRED_HELPER=$(mktemp)
+                echo "#!/bin/sh" > "$CRED_HELPER"
+                echo "echo username=token" >> "$CRED_HELPER"
+                echo "echo password=$TOKEN" >> "$CRED_HELPER"
+                chmod +x "$CRED_HELPER"
+                GIT_TERMINAL_PROMPT=0 git -c credential.helper="!$CRED_HELPER" clone "$REPO_URL" "$APP_PATH" || {
+                  echo "❌ Failed to clone repository with token"
+                  rm -f "$CRED_HELPER"
+                  exit 1
+                }
+                rm -f "$CRED_HELPER"
+                cd "$APP_PATH"
+                git remote set-url origin "$REPO_URL"
+                cd -
+              else
+                echo "   Trying SSH authentication..."
+                REPO_URL_SSH="git@github.com:${{ github.repository }}.git"
+                git clone "$REPO_URL_SSH" "$APP_PATH" || {
+                  echo "❌ Failed to clone repository"
+                  echo "   Add DEPLOY_GITHUB_TOKEN secret for private repos"
+                  exit 1
+                }
+              fi
+
+              echo "✅ Repository cloned successfully"
+            else
+              echo "✅ Directory already exists"
+            fi
+
+            if [ ! -d "$APP_PATH" ]; then
+              echo "❌ Directory still doesn't exist: $APP_PATH"
+              exit 1
+            fi
+
+            cd "$APP_PATH" || {
+              echo "❌ Failed to change to directory: $APP_PATH"
+              exit 1
+            }
+
+            echo "✅ Current directory: $(pwd)"
+
+            if [ ! -d .git ]; then
+              echo "⚠️  Warning: Not a git repository. Initializing..."
+              git init
+              git remote add origin "https://github.com/${{ github.repository }}.git" 2>/dev/null || \
+                git remote set-url origin "https://github.com/${{ github.repository }}.git"
+            fi
+
+            echo "📥 Pulling latest changes from main..."
+            if [ -n "$GITHUB_TOKEN" ] || [ -n "$DEPLOY_GITHUB_TOKEN" ]; then
+              TOKEN="${GITHUB_TOKEN:-$DEPLOY_GITHUB_TOKEN}"
+              CRED_HELPER=$(mktemp)
+              echo "#!/bin/sh" > "$CRED_HELPER"
+              echo "echo username=token" >> "$CRED_HELPER"
+              echo "echo password=$TOKEN" >> "$CRED_HELPER"
+              chmod +x "$CRED_HELPER"
+              GIT_TERMINAL_PROMPT=0 git -c credential.helper="!$CRED_HELPER" fetch origin
+              rm -f "$CRED_HELPER"
+            else
+              git fetch origin
+            fi
+            git reset --hard origin/main
+            git clean -fd
+
+            echo "📋 Git status after pull:"
+            git status --short || true
+            echo "📁 Verifying src directory exists..."
+            if [ ! -d src ]; then
+              echo "❌ src directory not found after git pull!"
+              ls -la
+              exit 1
+            fi
+            echo "✅ src directory found"
+
+            echo "📄 Checking for package.json..."
+            if [ ! -f package.json ]; then
+              echo "❌ package.json not found in $(pwd)"
+              exit 1
+            fi
+
+            echo "📦 Installing dependencies..."
+            echo "   Node version: $(node --version)"
+            echo "   npm version: $(npm --version)"
+            npm ci --include=dev || {
+              echo "❌ npm ci failed, trying npm install..."
+              npm install || {
+                echo "❌ npm install also failed"
+                exit 1
+              }
+            }
+
+            echo "🔧 Setting up .env file..."
+            if [ -z "${TELEGRAM_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+              echo "❌ Missing required secrets: TELEGRAM_TOKEN and TELEGRAM_CHAT_ID"
+              exit 1
+            fi
+            {
+              echo "TELEGRAM_TOKEN=${TELEGRAM_TOKEN}"
+              echo "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}"
+              echo "DEVICE_IP=${DEVICE_IP:-}"
+              echo "NODE_ENV=${NODE_ENV:-production}"
+            } > .env
+            echo "   ✅ .env file written"
+
+            export PM2_APP_NAME="${PM2_APP_NAME:-kucoin-agent}"
+
+            echo "🔄 Restarting application with PM2..."
+            if [ -f ecosystem.config.json ]; then
+              npx pm2 delete "$PM2_APP_NAME" 2>/dev/null || true
+              npx pm2 start ecosystem.config.json || {
+                echo "❌ Failed to start with ecosystem.config.json"
+                exit 1
+              }
+            else
+              echo "❌ ecosystem.config.json not found"
+              exit 1
+            fi
+
+            npx pm2 save
+
+            echo "📊 PM2 Status:"
+            npx pm2 status
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "🚀 kucoin-agent should be running on Hetzner server"
