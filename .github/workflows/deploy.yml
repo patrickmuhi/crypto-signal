@@ -23,6 +23,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DEVICE_IP: ${{ secrets.DEVICE_IP }}
+          SSE_PORT: ${{ secrets.SSE_PORT }}
           NODE_ENV: ${{ secrets.NODE_ENV }}
           PM2_APP_NAME: ${{ secrets.PM2_APP_NAME }}
         with:
@@ -32,7 +33,7 @@ jobs:
           port: ${{ secrets.HETZNER_PORT || 22 }}
           timeout: 30s
           debug: true
-          envs: GITHUB_TOKEN,DEPLOY_GITHUB_TOKEN,TELEGRAM_TOKEN,TELEGRAM_CHAT_ID,DEVICE_IP,NODE_ENV,PM2_APP_NAME
+          envs: GITHUB_TOKEN,DEPLOY_GITHUB_TOKEN,TELEGRAM_TOKEN,TELEGRAM_CHAT_ID,DEVICE_IP,SSE_PORT,NODE_ENV,PM2_APP_NAME
           script: |
             set -eu
 
@@ -169,6 +170,7 @@ jobs:
               echo "TELEGRAM_TOKEN=${TELEGRAM_TOKEN}"
               echo "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}"
               echo "DEVICE_IP=${DEVICE_IP:-}"
+              echo "SSE_PORT=${SSE_PORT:-3001}"
               echo "NODE_ENV=${NODE_ENV:-production}"
             } > .env
             echo "   ✅ .env file written"

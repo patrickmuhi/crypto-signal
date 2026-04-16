@@ -13,4 +13,7 @@ export const config = {
 
   // how long to wait before reconnecting after a WS drop
   reconnectDelayMs: 3000,
+
+  // SSE server port — frontend connects here to receive alert stream
+  ssePort: Number(process.env.SSE_PORT ?? 3001),
 } as const;

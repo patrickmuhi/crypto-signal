@@ -1,5 +1,6 @@
 import EventEmitter from 'events';
 import { AlertEvent } from '../types';
+import { alertDb } from './db';
 
 const TELEGRAM_TOKEN   = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -8,10 +9,11 @@ const DEVICE_IP        = process.env.DEVICE_IP; // optional hardware notifier
 export const alertEmitter = new EventEmitter();
 
 /**
- * Emit an alert event, send a Telegram message, and optionally notify hardware.
+ * Save to DB, emit locally, send Telegram, and optionally notify hardware.
  * Called from ticker-router when a threshold is crossed.
  */
 export async function emitAlert(alert: AlertEvent): Promise<void> {
+  alertDb.insert(alert);
   alertEmitter.emit('alert', alert);
   await Promise.allSettled([
     sendTelegram(alert),

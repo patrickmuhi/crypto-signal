@@ -4,6 +4,7 @@ import { WsManager } from './ws-manager';
 import { PriceTracker } from './price-tracker';
 import { TickerRouter } from './ticker-router';
 import { alertEmitter } from './emitter';
+import { startSseServer } from './sse-server';
 import { AlertEvent } from '../types';
 import { getTopMovers } from './top-movers';
 
@@ -46,6 +47,8 @@ async function main(): Promise<void> {
   if (process.env.DEVICE_IP) {
     console.log(`[agent] hardware notifier: ${process.env.DEVICE_IP}`);
   }
+
+  startSseServer();
 
   const symbols = await fetchSymbols();
   console.log(`[agent] starting KuCoin market monitor — watching ${symbols.length} symbols`);

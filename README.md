@@ -122,6 +122,183 @@ alertEmitter.on('alert', (event) => {
 });
 ```
 
+## Connecting a frontend
+
+The agent runs a small HTTP server that streams alerts to any frontend in real time.
+
+### Base URL
+
+```
+http://<your-server-ip>:5007
+```
+
+Use `localhost:5007` during local development. The port is set via `SSE_PORT` in `.env`.
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/alerts` | GET | SSE stream — one `alert` event per threshold cross |
+| `/alerts/history` | GET | Paginated JSON of stored alerts |
+| `/health` | GET | `{ status, clients, stored }` |
+
+#### History query params
+
+```
+/alerts/history?limit=100&offset=0
+```
+
+### 1. Load history on page mount
+
+```js
+async function loadHistory(limit = 100) {
+  const res  = await fetch(`http://<your-server-ip>:5007/alerts/history?limit=${limit}`);
+  const json = await res.json();
+  // { total: 412, limit: 100, offset: 0, data: [ ...AlertEvent ] }
+  return json.data;
+}
+```
+
+### 2. Subscribe to the live stream
+
+`EventSource` is built into every browser — no library needed. It auto-reconnects if the connection drops.
+
+```js
+const es = new EventSource('http://<your-server-ip>:5007/alerts');
+
+es.addEventListener('alert', (e) => {
+  const alert = JSON.parse(e.data);
+  // {
+  //   symbol:        "BTC-USDT",
+  //   direction:     "up",          // "up" | "down"
+  //   thresholdPct:  4,             // 2 | 4 | 10 | 20
+  //   currentPrice:  71204.5,
+  //   baselinePrice: 68240.1,
+  //   pctChange:     4.34,          // signed
+  //   timestamp:     1715000000000  // unix ms
+  // }
+});
+
+es.onerror = () => {
+  // EventSource retries automatically — no manual reconnect needed
+};
+
+// Disconnect when done (e.g. component unmount)
+es.close();
+```
+
+### 3. Full example — vanilla JS
+
+```html
+<!DOCTYPE html>
+<html>
+<body>
+  <ul id="feed"></ul>
+  <script>
+    const BASE = 'http://<your-server-ip>:5007';
+    const feed = document.getElementById('feed');
+
+    function renderAlert(alert) {
+      const sign  = alert.direction === 'up' ? '+' : '';
+      const emoji = alert.direction === 'up' ? '🟢' : '🔴';
+      const li    = document.createElement('li');
+      li.textContent = `${emoji} ${alert.symbol}  ${sign}${alert.pctChange.toFixed(2)}%`
+                     + `  (hit ±${alert.thresholdPct}%)`
+                     + `  @ $${alert.currentPrice.toFixed(4)}`
+                     + `  — ${new Date(alert.timestamp).toLocaleTimeString()}`;
+      feed.prepend(li);
+    }
+
+    // Load history then stream live
+    fetch(`${BASE}/alerts/history?limit=50`)
+      .then(r => r.json())
+      .then(({ data }) => data.forEach(renderAlert));
+
+    const es = new EventSource(`${BASE}/alerts`);
+    es.addEventListener('alert', (e) => renderAlert(JSON.parse(e.data)));
+  </script>
+</body>
+</html>
+```
+
+### 4. React hook
+
+```tsx
+import { useEffect, useState } from 'react';
+
+const BASE = 'http://<your-server-ip>:5007';
+
+interface AlertEvent {
+  symbol: string;
+  direction: 'up' | 'down';
+  thresholdPct: number;
+  currentPrice: number;
+  baselinePrice: number;
+  pctChange: number;
+  timestamp: number;
+}
+
+export function useAlerts() {
+  const [alerts, setAlerts] = useState<AlertEvent[]>([]);
+
+  useEffect(() => {
+    // Load history first
+    fetch(`${BASE}/alerts/history?limit=50`)
+      .then(r => r.json())
+      .then(({ data }) => setAlerts(data.reverse())); // oldest → newest
+
+    // Then stream live
+    const es = new EventSource(`${BASE}/alerts`);
+    es.addEventListener('alert', (e) => {
+      const alert: AlertEvent = JSON.parse(e.data);
+      setAlerts(prev => [...prev, alert]);
+    });
+
+    return () => es.close();
+  }, []);
+
+  return alerts;
+}
+```
+
+Usage:
+
+```tsx
+export function AlertFeed() {
+  const alerts = useAlerts();
+  return (
+    <ul>
+      {[...alerts].reverse().map(a => (
+        <li key={a.timestamp + a.symbol}>
+          {a.direction === 'up' ? '🟢' : '🔴'} {a.symbol}
+          {' '}{a.pctChange.toFixed(2)}% hit ±{a.thresholdPct}%
+        </li>
+      ))}
+    </ul>
+  );
+}
+```
+
+### 5. Health check
+
+```js
+const res  = await fetch('http://<your-server-ip>:5007/health');
+const data = await res.json();
+// { status: "ok", clients: 2, stored: 843 }
+```
+
+### Firewall
+
+Open port `5007` on your Hetzner server:
+
+```bash
+ufw allow 5007/tcp
+```
+
+`Access-Control-Allow-Origin: *` is set on all endpoints so there are no CORS issues from any frontend origin.
+
+---
+
 ## Running with PM2
 
 ```bash
