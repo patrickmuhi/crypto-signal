@@ -41,7 +41,7 @@ const countStmt = db.prepare(`SELECT COUNT(*) as count FROM alerts`);
 
 const wipeStmt = db.prepare(`DELETE FROM alerts`);
 
-const getAllStmt = db.prepare(`SELECT * FROM alerts ORDER BY timestamp DESC`);
+const getAllSinceStmt = db.prepare(`SELECT * FROM alerts WHERE timestamp >= ? ORDER BY timestamp DESC`);
 
 function rowToAlertEvent(r: any): AlertEvent {
   return {
@@ -55,8 +55,13 @@ function rowToAlertEvent(r: any): AlertEvent {
   };
 }
 
+function startOfTodayMs(): number {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
 function groupByDirection(direction: 'up' | 'down', minSignals: number): DirectionalAsset[] {
-  const rows = getAllStmt.all() as any[];
+  const rows = getAllSinceStmt.all(startOfTodayMs()) as any[];
   const bySymbol = new Map<string, AlertEvent[]>();
 
   for (const row of rows) {

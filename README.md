@@ -140,8 +140,8 @@ Use `localhost:5007` during local development. The port is set via `SSE_PORT` in
 |---|---|---|
 | `/alerts` | GET | SSE stream — one `alert` event per threshold cross |
 | `/alerts/history` | GET | Paginated JSON of stored alerts |
-| `/signals/always-bullish` | GET | Assets with only `up` signals this month |
-| `/signals/always-bearish` | GET | Assets with only `down` signals this month |
+| `/signals/always-bullish` | GET | Assets with only `up` signals today |
+| `/signals/always-bearish` | GET | Assets with only `down` signals today |
 | `/health` | GET | `{ status, clients, stored }` |
 
 #### History query params
@@ -163,7 +163,7 @@ Use `localhost:5007` during local development. The port is set via `SSE_PORT` in
 
 ```json
 {
-  "month": "2026-04",
+  "date": "2026-04-19",
   "minSignals": 2,
   "count": 3,
   "assets": [
@@ -188,7 +188,7 @@ Use `localhost:5007` during local development. The port is set via `SSE_PORT` in
 }
 ```
 
-`alerts` is sorted newest-first and `signalCount` always equals `alerts.length`. Results are sorted by `signalCount` descending. Because the DB is wiped on the 1st of each month, these endpoints always reflect the current month's data.
+`alerts` is sorted newest-first and `signalCount` always equals `alerts.length`. Results are sorted by `signalCount` descending. Only signals from midnight today (local time) onward are considered — the top-level key is `date` (`YYYY-MM-DD`).
 
 ### 1. Load history on page mount
 

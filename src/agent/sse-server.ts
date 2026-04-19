@@ -80,27 +80,25 @@ export function startSseServer(): void {
       return;
     }
 
-    // Always-bullish assets this month:  GET /signals/always-bullish?minSignals=2
+    // Always-bullish assets today:  GET /signals/always-bullish?minSignals=2
     if (req.url?.startsWith('/signals/always-bullish') && req.method === 'GET') {
       const url        = new URL(req.url, `http://localhost`);
       const minSignals = Math.max(1, Number(url.searchParams.get('minSignals') ?? 2));
-      const now        = new Date();
-      const month      = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const date       = new Date().toISOString().slice(0, 10);
       const assets     = alertDb.alwaysBullish(minSignals);
       res.writeHead(200, parseCorsHeaders('GET'));
-      res.end(JSON.stringify({ month, minSignals, count: assets.length, assets }));
+      res.end(JSON.stringify({ date, minSignals, count: assets.length, assets }));
       return;
     }
 
-    // Always-bearish assets this month:  GET /signals/always-bearish?minSignals=2
+    // Always-bearish assets today:  GET /signals/always-bearish?minSignals=2
     if (req.url?.startsWith('/signals/always-bearish') && req.method === 'GET') {
       const url        = new URL(req.url, `http://localhost`);
       const minSignals = Math.max(1, Number(url.searchParams.get('minSignals') ?? 2));
-      const now        = new Date();
-      const month      = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const date       = new Date().toISOString().slice(0, 10);
       const assets     = alertDb.alwaysBearish(minSignals);
       res.writeHead(200, parseCorsHeaders('GET'));
-      res.end(JSON.stringify({ month, minSignals, count: assets.length, assets }));
+      res.end(JSON.stringify({ date, minSignals, count: assets.length, assets }));
       return;
     }
 
