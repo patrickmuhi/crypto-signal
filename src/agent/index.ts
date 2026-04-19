@@ -12,8 +12,8 @@ const SYMBOL_REFRESH_MS = 24 * 60 * 60 * 1000; // refresh symbol list every 24h
 
 async function fetchSymbols(): Promise<string[]> {
   console.log('[agent] fetching top movers from KuCoin...');
-  const { gainers, losers } = await getTopMovers(25);
-  const symbols = [...new Set([...gainers, ...losers].map(m => m.symbol))].slice(0, 50);
+  const { gainers, losers } = await getTopMovers(75);
+  const symbols = [...new Set([...gainers, ...losers].map(m => m.symbol))].slice(0, 150);
   console.log(`[agent] top gainers: ${gainers.map(m => m.symbol).join(', ')}`);
   console.log(`[agent] top losers:  ${losers.map(m => m.symbol).join(', ')}`);
   return symbols;

@@ -80,6 +80,30 @@ export function startSseServer(): void {
       return;
     }
 
+    // Always-bullish assets this month:  GET /signals/always-bullish?minSignals=2
+    if (req.url?.startsWith('/signals/always-bullish') && req.method === 'GET') {
+      const url        = new URL(req.url, `http://localhost`);
+      const minSignals = Math.max(1, Number(url.searchParams.get('minSignals') ?? 2));
+      const now        = new Date();
+      const month      = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const assets     = alertDb.alwaysBullish(minSignals);
+      res.writeHead(200, parseCorsHeaders('GET'));
+      res.end(JSON.stringify({ month, minSignals, count: assets.length, assets }));
+      return;
+    }
+
+    // Always-bearish assets this month:  GET /signals/always-bearish?minSignals=2
+    if (req.url?.startsWith('/signals/always-bearish') && req.method === 'GET') {
+      const url        = new URL(req.url, `http://localhost`);
+      const minSignals = Math.max(1, Number(url.searchParams.get('minSignals') ?? 2));
+      const now        = new Date();
+      const month      = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const assets     = alertDb.alwaysBearish(minSignals);
+      res.writeHead(200, parseCorsHeaders('GET'));
+      res.end(JSON.stringify({ month, minSignals, count: assets.length, assets }));
+      return;
+    }
+
     // Health check
     if (req.url === '/health' && req.method === 'GET') {
       res.writeHead(200, parseCorsHeaders('GET'));
@@ -93,8 +117,10 @@ export function startSseServer(): void {
 
   server.listen(config.ssePort, () => {
     console.log(`[sse] server listening on port ${config.ssePort}`);
-    console.log(`[sse] stream:   http://localhost:${config.ssePort}/alerts`);
-    console.log(`[sse] history:  http://localhost:${config.ssePort}/alerts/history`);
-    console.log(`[sse] health:   http://localhost:${config.ssePort}/health`);
+    console.log(`[sse] stream:         http://localhost:${config.ssePort}/alerts`);
+    console.log(`[sse] history:        http://localhost:${config.ssePort}/alerts/history`);
+    console.log(`[sse] always-bullish: http://localhost:${config.ssePort}/signals/always-bullish`);
+    console.log(`[sse] always-bearish: http://localhost:${config.ssePort}/signals/always-bearish`);
+    console.log(`[sse] health:         http://localhost:${config.ssePort}/health`);
   });
 }

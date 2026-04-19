@@ -41,6 +41,37 @@ const countStmt = db.prepare(`SELECT COUNT(*) as count FROM alerts`);
 
 const wipeStmt = db.prepare(`DELETE FROM alerts`);
 
+const alwaysBullishStmt = db.prepare(`
+  SELECT symbol,
+         COUNT(*)        AS signal_count,
+         MIN(timestamp)  AS first_signal,
+         MAX(timestamp)  AS last_signal
+  FROM alerts
+  GROUP BY symbol
+  HAVING COUNT(*) = SUM(CASE WHEN direction = 'up' THEN 1 ELSE 0 END)
+     AND COUNT(*) >= ?
+  ORDER BY signal_count DESC
+`);
+
+const alwaysBearishStmt = db.prepare(`
+  SELECT symbol,
+         COUNT(*)        AS signal_count,
+         MIN(timestamp)  AS first_signal,
+         MAX(timestamp)  AS last_signal
+  FROM alerts
+  GROUP BY symbol
+  HAVING COUNT(*) = SUM(CASE WHEN direction = 'down' THEN 1 ELSE 0 END)
+     AND COUNT(*) >= ?
+  ORDER BY signal_count DESC
+`);
+
+export interface DirectionalAsset {
+  symbol: string;
+  signalCount: number;
+  firstSignal: number;
+  lastSignal: number;
+}
+
 export const alertDb = {
   insert(alert: AlertEvent): void {
     insertStmt.run({
@@ -73,6 +104,24 @@ export const alertDb = {
 
   count(): number {
     return (countStmt.get() as { count: number }).count;
+  },
+
+  alwaysBullish(minSignals = 2): DirectionalAsset[] {
+    return (alwaysBullishStmt.all(minSignals) as any[]).map(r => ({
+      symbol:      r.symbol,
+      signalCount: r.signal_count,
+      firstSignal: r.first_signal,
+      lastSignal:  r.last_signal,
+    }));
+  },
+
+  alwaysBearish(minSignals = 2): DirectionalAsset[] {
+    return (alwaysBearishStmt.all(minSignals) as any[]).map(r => ({
+      symbol:      r.symbol,
+      signalCount: r.signal_count,
+      firstSignal: r.first_signal,
+      lastSignal:  r.last_signal,
+    }));
   },
 
   // Wipe all records and reclaim disk space
