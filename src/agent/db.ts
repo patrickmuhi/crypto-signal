@@ -41,35 +41,52 @@ const countStmt = db.prepare(`SELECT COUNT(*) as count FROM alerts`);
 
 const wipeStmt = db.prepare(`DELETE FROM alerts`);
 
-const alwaysBullishStmt = db.prepare(`
-  SELECT symbol,
-         COUNT(*)        AS signal_count,
-         MIN(timestamp)  AS first_signal,
-         MAX(timestamp)  AS last_signal
-  FROM alerts
-  GROUP BY symbol
-  HAVING COUNT(*) = SUM(CASE WHEN direction = 'up' THEN 1 ELSE 0 END)
-     AND COUNT(*) >= ?
-  ORDER BY signal_count DESC
-`);
+const getAllStmt = db.prepare(`SELECT * FROM alerts ORDER BY timestamp DESC`);
 
-const alwaysBearishStmt = db.prepare(`
-  SELECT symbol,
-         COUNT(*)        AS signal_count,
-         MIN(timestamp)  AS first_signal,
-         MAX(timestamp)  AS last_signal
-  FROM alerts
-  GROUP BY symbol
-  HAVING COUNT(*) = SUM(CASE WHEN direction = 'down' THEN 1 ELSE 0 END)
-     AND COUNT(*) >= ?
-  ORDER BY signal_count DESC
-`);
+function rowToAlertEvent(r: any): AlertEvent {
+  return {
+    symbol:        r.symbol,
+    direction:     r.direction as 'up' | 'down',
+    thresholdPct:  r.threshold_pct,
+    currentPrice:  r.current_price,
+    baselinePrice: r.baseline_price,
+    pctChange:     r.pct_change,
+    timestamp:     r.timestamp,
+  };
+}
+
+function groupByDirection(direction: 'up' | 'down', minSignals: number): DirectionalAsset[] {
+  const rows = getAllStmt.all() as any[];
+  const bySymbol = new Map<string, AlertEvent[]>();
+
+  for (const row of rows) {
+    const arr = bySymbol.get(row.symbol) ?? [];
+    arr.push(rowToAlertEvent(row));
+    bySymbol.set(row.symbol, arr);
+  }
+
+  const result: DirectionalAsset[] = [];
+  for (const [symbol, alerts] of bySymbol) {
+    if (alerts.every(a => a.direction === direction) && alerts.length >= minSignals) {
+      result.push({
+        symbol,
+        signalCount: alerts.length,
+        firstSignal: alerts[alerts.length - 1].timestamp, // oldest (alerts are DESC)
+        lastSignal:  alerts[0].timestamp,                 // newest
+        alerts,
+      });
+    }
+  }
+
+  return result.sort((a, b) => b.signalCount - a.signalCount);
+}
 
 export interface DirectionalAsset {
   symbol: string;
   signalCount: number;
   firstSignal: number;
   lastSignal: number;
+  alerts: AlertEvent[];
 }
 
 export const alertDb = {
@@ -85,21 +102,8 @@ export const alertDb = {
     });
   },
 
-  // Returns the N most recent alerts as AlertEvent objects
   getRecent(limit = 50): AlertEvent[] {
-    const rows = recentStmt.all(limit) as {
-      symbol: string; direction: string; threshold_pct: number;
-      current_price: number; baseline_price: number; pct_change: number; timestamp: number;
-    }[];
-    return rows.map(r => ({
-      symbol:        r.symbol,
-      direction:     r.direction as 'up' | 'down',
-      thresholdPct:  r.threshold_pct,
-      currentPrice:  r.current_price,
-      baselinePrice: r.baseline_price,
-      pctChange:     r.pct_change,
-      timestamp:     r.timestamp,
-    }));
+    return (recentStmt.all(limit) as any[]).map(rowToAlertEvent);
   },
 
   count(): number {
@@ -107,21 +111,11 @@ export const alertDb = {
   },
 
   alwaysBullish(minSignals = 2): DirectionalAsset[] {
-    return (alwaysBullishStmt.all(minSignals) as any[]).map(r => ({
-      symbol:      r.symbol,
-      signalCount: r.signal_count,
-      firstSignal: r.first_signal,
-      lastSignal:  r.last_signal,
-    }));
+    return groupByDirection('up', minSignals);
   },
 
   alwaysBearish(minSignals = 2): DirectionalAsset[] {
-    return (alwaysBearishStmt.all(minSignals) as any[]).map(r => ({
-      symbol:      r.symbol,
-      signalCount: r.signal_count,
-      firstSignal: r.first_signal,
-      lastSignal:  r.last_signal,
-    }));
+    return groupByDirection('down', minSignals);
   },
 
   // Wipe all records and reclaim disk space

@@ -140,6 +140,8 @@ Use `localhost:5007` during local development. The port is set via `SSE_PORT` in
 |---|---|---|
 | `/alerts` | GET | SSE stream — one `alert` event per threshold cross |
 | `/alerts/history` | GET | Paginated JSON of stored alerts |
+| `/signals/always-bullish` | GET | Assets with only `up` signals this month |
+| `/signals/always-bearish` | GET | Assets with only `down` signals this month |
 | `/health` | GET | `{ status, clients, stored }` |
 
 #### History query params
@@ -147,6 +149,46 @@ Use `localhost:5007` during local development. The port is set via `SSE_PORT` in
 ```
 /alerts/history?limit=100&offset=0
 ```
+
+#### Always-bullish / always-bearish query params
+
+```
+/signals/always-bullish?minSignals=2
+/signals/always-bearish?minSignals=2
+```
+
+`minSignals` (default `2`) sets the minimum number of signals a symbol must have to appear — useful to filter out one-off crossings.
+
+**Response shape:**
+
+```json
+{
+  "month": "2026-04",
+  "minSignals": 2,
+  "count": 3,
+  "assets": [
+    {
+      "symbol": "BTC-USDT",
+      "signalCount": 14,
+      "firstSignal": 1713484800000,
+      "lastSignal": 1713916800000,
+      "alerts": [
+        {
+          "symbol": "BTC-USDT",
+          "direction": "up",
+          "thresholdPct": 4,
+          "currentPrice": 68420.50,
+          "baselinePrice": 65700.00,
+          "pctChange": 4.14,
+          "timestamp": 1713916800000
+        }
+      ]
+    }
+  ]
+}
+```
+
+`alerts` is sorted newest-first and `signalCount` always equals `alerts.length`. Results are sorted by `signalCount` descending. Because the DB is wiped on the 1st of each month, these endpoints always reflect the current month's data.
 
 ### 1. Load history on page mount
 
