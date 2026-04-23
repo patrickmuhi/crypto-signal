@@ -168,17 +168,17 @@ export const alertDb = {
       const allDown = alerts.every(a => a.direction === 'down');
       if (!allUp && !allDown) continue;
 
-      // alerts are ORDER BY timestamp DESC, so index 0 is newest
-      const latest: MonthlyTrendItem = {
+      const latest = alerts.reduce((a, b) => a.timestamp > b.timestamp ? a : b);
+      const summary: MonthlyTrendItem = {
         symbol,
         alertCount:      alerts.length,
         avgPctChange:    alerts.reduce((s, a) => s + Math.abs(a.pctChange), 0) / alerts.length,
-        latestPrice:     alerts[0].currentPrice,
-        latestTimestamp: alerts[0].timestamp,
+        latestPrice:     latest.currentPrice,
+        latestTimestamp: latest.timestamp,
       };
 
-      if (allUp)   alwaysUp.push(latest);
-      else         alwaysDown.push(latest);
+      if (allUp)   alwaysUp.push(summary);
+      else         alwaysDown.push(summary);
     }
 
     alwaysUp.sort((a, b) => b.alertCount - a.alertCount);
