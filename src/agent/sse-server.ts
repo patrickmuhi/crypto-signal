@@ -102,6 +102,13 @@ export function startSseServer(): void {
       return;
     }
 
+    // Monthly trends:  GET /alerts/trends/monthly
+    if (req.url === '/alerts/trends/monthly' && req.method === 'GET') {
+      res.writeHead(200, parseCorsHeaders('GET'));
+      res.end(JSON.stringify(alertDb.monthlyTrends()));
+      return;
+    }
+
     // Health check
     if (req.url === '/health' && req.method === 'GET') {
       res.writeHead(200, parseCorsHeaders('GET'));
@@ -119,6 +126,7 @@ export function startSseServer(): void {
     console.log(`[sse] history:        http://localhost:${config.ssePort}/alerts/history`);
     console.log(`[sse] always-bullish: http://localhost:${config.ssePort}/signals/always-bullish`);
     console.log(`[sse] always-bearish: http://localhost:${config.ssePort}/signals/always-bearish`);
+    console.log(`[sse] monthly trends: http://localhost:${config.ssePort}/alerts/trends/monthly`);
     console.log(`[sse] health:         http://localhost:${config.ssePort}/health`);
   });
 }

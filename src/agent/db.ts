@@ -95,6 +95,19 @@ function groupByDirection(direction: 'up' | 'down', minSignals: number): Directi
   return result.sort((a, b) => b.signalCount - a.signalCount);
 }
 
+export interface MonthlyTrendItem {
+  symbol: string;
+  alertCount: number;
+  avgPctChange: number;
+  latestPrice: number;
+  latestTimestamp: number;
+}
+
+export interface MonthlyTrends {
+  alwaysUp: MonthlyTrendItem[];
+  alwaysDown: MonthlyTrendItem[];
+}
+
 export interface DirectionalAsset {
   symbol: string;
   signalCount: number;
@@ -123,6 +136,44 @@ export const alertDb = {
 
   count(): number {
     return (countStmt.get() as { count: number }).count;
+  },
+
+  monthlyTrends(): MonthlyTrends {
+    const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const rows = getAllSinceStmt.all(since) as any[];
+
+    const bySymbol = new Map<string, AlertEvent[]>();
+    for (const row of rows) {
+      const arr = bySymbol.get(row.symbol) ?? [];
+      arr.push(rowToAlertEvent(row));
+      bySymbol.set(row.symbol, arr);
+    }
+
+    const alwaysUp: MonthlyTrendItem[] = [];
+    const alwaysDown: MonthlyTrendItem[] = [];
+
+    for (const [symbol, alerts] of bySymbol) {
+      const allUp   = alerts.every(a => a.direction === 'up');
+      const allDown = alerts.every(a => a.direction === 'down');
+      if (!allUp && !allDown) continue;
+
+      // alerts are ORDER BY timestamp DESC, so index 0 is newest
+      const latest: MonthlyTrendItem = {
+        symbol,
+        alertCount:      alerts.length,
+        avgPctChange:    alerts.reduce((s, a) => s + Math.abs(a.pctChange), 0) / alerts.length,
+        latestPrice:     alerts[0].currentPrice,
+        latestTimestamp: alerts[0].timestamp,
+      };
+
+      if (allUp)   alwaysUp.push(latest);
+      else         alwaysDown.push(latest);
+    }
+
+    alwaysUp.sort((a, b) => b.alertCount - a.alertCount);
+    alwaysDown.sort((a, b) => b.alertCount - a.alertCount);
+
+    return { alwaysUp, alwaysDown };
   },
 
   alwaysBullish(minSignals = 2): DirectionalAsset[] {
