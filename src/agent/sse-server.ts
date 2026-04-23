@@ -102,6 +102,18 @@ export function startSseServer(): void {
       return;
     }
 
+    // Per-symbol history:  GET /alerts/history/:symbol?days=30&limit=100
+    if (req.url?.startsWith('/alerts/history/') && req.method === 'GET') {
+      const url    = new URL(req.url, `http://localhost`);
+      const symbol = decodeURIComponent(url.pathname.slice('/alerts/history/'.length));
+      const days   = Math.max(1, Number(url.searchParams.get('days')  ?? 30));
+      const limit  = url.searchParams.has('limit') ? Math.max(1, Number(url.searchParams.get('limit'))) : undefined;
+      const data   = alertDb.getBySymbol(symbol, days, limit);
+      res.writeHead(200, parseCorsHeaders('GET'));
+      res.end(JSON.stringify({ symbol, data }));
+      return;
+    }
+
     // Monthly trends:  GET /alerts/trends/monthly
     if (req.url === '/alerts/trends/monthly' && req.method === 'GET') {
       res.writeHead(200, parseCorsHeaders('GET'));
@@ -126,6 +138,7 @@ export function startSseServer(): void {
     console.log(`[sse] history:        http://localhost:${config.ssePort}/alerts/history`);
     console.log(`[sse] always-bullish: http://localhost:${config.ssePort}/signals/always-bullish`);
     console.log(`[sse] always-bearish: http://localhost:${config.ssePort}/signals/always-bearish`);
+    console.log(`[sse] symbol history: http://localhost:${config.ssePort}/alerts/history/:symbol`);
     console.log(`[sse] monthly trends: http://localhost:${config.ssePort}/alerts/trends/monthly`);
     console.log(`[sse] health:         http://localhost:${config.ssePort}/health`);
   });

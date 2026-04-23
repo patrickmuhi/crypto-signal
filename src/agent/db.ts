@@ -51,6 +51,10 @@ const wipeStmt = db.prepare(`DELETE FROM alerts`);
 
 const getAllSinceStmt = db.prepare(`SELECT * FROM alerts WHERE timestamp >= ? ORDER BY timestamp DESC`);
 
+const getBySymbolStmt = db.prepare(`
+  SELECT * FROM alerts WHERE symbol = ? AND timestamp >= ? ORDER BY timestamp DESC
+`);
+
 function rowToAlertEvent(r: any): AlertEvent {
   return {
     symbol:        r.symbol,
@@ -136,6 +140,13 @@ export const alertDb = {
 
   count(): number {
     return (countStmt.get() as { count: number }).count;
+  },
+
+  getBySymbol(symbol: string, days = 30, limit?: number): AlertEvent[] {
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    const rows = getBySymbolStmt.all(symbol, since) as any[];
+    const alerts = rows.map(rowToAlertEvent);
+    return limit != null ? alerts.slice(0, limit) : alerts;
   },
 
   monthlyTrends(): MonthlyTrends {
