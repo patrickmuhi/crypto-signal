@@ -15,22 +15,30 @@ db.pragma('journal_mode = WAL');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS alerts (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol        TEXT    NOT NULL,
-    direction     TEXT    NOT NULL,
-    threshold_pct INTEGER NOT NULL,
-    current_price REAL    NOT NULL,
-    baseline_price REAL   NOT NULL,
-    pct_change    REAL    NOT NULL,
-    timestamp     INTEGER NOT NULL
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol         TEXT    NOT NULL,
+    direction      TEXT    NOT NULL,
+    threshold_pct  INTEGER NOT NULL,
+    current_price  REAL    NOT NULL,
+    baseline_price REAL    NOT NULL,
+    pct_change     REAL    NOT NULL,
+    timestamp      INTEGER NOT NULL,
+    buy_sell_ratio REAL
   );
   CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts (timestamp DESC);
   CREATE INDEX IF NOT EXISTS idx_alerts_symbol    ON alerts (symbol);
 `);
 
+// Migrate existing DBs that pre-date the buy_sell_ratio column
+try {
+  db.exec('ALTER TABLE alerts ADD COLUMN buy_sell_ratio REAL');
+} catch {
+  // column already exists — safe to ignore
+}
+
 const insertStmt = db.prepare(`
-  INSERT INTO alerts (symbol, direction, threshold_pct, current_price, baseline_price, pct_change, timestamp)
-  VALUES (@symbol, @direction, @threshold_pct, @current_price, @baseline_price, @pct_change, @timestamp)
+  INSERT INTO alerts (symbol, direction, threshold_pct, current_price, baseline_price, pct_change, timestamp, buy_sell_ratio)
+  VALUES (@symbol, @direction, @threshold_pct, @current_price, @baseline_price, @pct_change, @timestamp, @buy_sell_ratio)
 `);
 
 const recentStmt = db.prepare(`
@@ -52,6 +60,7 @@ function rowToAlertEvent(r: any): AlertEvent {
     baselinePrice: r.baseline_price,
     pctChange:     r.pct_change,
     timestamp:     r.timestamp,
+    buySellRatio:  r.buy_sell_ratio ?? undefined,
   };
 }
 
@@ -97,13 +106,14 @@ export interface DirectionalAsset {
 export const alertDb = {
   insert(alert: AlertEvent): void {
     insertStmt.run({
-      symbol:         alert.symbol,
-      direction:      alert.direction,
-      threshold_pct:  alert.thresholdPct,
-      current_price:  alert.currentPrice,
-      baseline_price: alert.baselinePrice,
-      pct_change:     alert.pctChange,
-      timestamp:      alert.timestamp,
+      symbol:          alert.symbol,
+      direction:       alert.direction,
+      threshold_pct:   alert.thresholdPct,
+      current_price:   alert.currentPrice,
+      baseline_price:  alert.baselinePrice,
+      pct_change:      alert.pctChange,
+      timestamp:       alert.timestamp,
+      buy_sell_ratio:  alert.buySellRatio ?? null,
     });
   },
 

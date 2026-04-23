@@ -26,12 +26,18 @@ async function sendTelegram(alert: AlertEvent): Promise<void> {
 
   const emoji = alert.direction === 'up' ? '🟢' : '🔴';
   const sign  = alert.direction === 'up' ? '+' : '';
-  const text  = [
+  const ratioLine = alert.buySellRatio != null
+    ? `B/S Ratio: ${alert.buySellRatio.toFixed(2)} (${alert.buySellRatio >= 1.5 ? 'buy pressure' : alert.buySellRatio <= 0.7 ? 'sell pressure' : 'balanced'})`
+    : null;
+
+  const lines = [
     `${emoji} *${alert.symbol}*`,
     `${sign}${alert.pctChange.toFixed(2)}% — hit ${alert.thresholdPct}% threshold`,
     `Price: $${alert.currentPrice.toFixed(4)}`,
     `Baseline: $${alert.baselinePrice.toFixed(4)}`,
-  ].join('\n');
+  ];
+  if (ratioLine) lines.push(ratioLine);
+  const text = lines.join('\n');
 
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`
             + `?chat_id=${TELEGRAM_CHAT_ID}`

@@ -26,12 +26,14 @@ export class WsManager {
   private ws: WebSocket | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnecting = false;
-  private onMessage: MessageHandler;
+  private onTicker: MessageHandler;
+  private onMatch: MessageHandler;
   private symbols: string[];
 
-  constructor(symbols: string[], onMessage: MessageHandler) {
+  constructor(symbols: string[], onTicker: MessageHandler, onMatch: MessageHandler) {
     this.symbols = symbols;
-    this.onMessage = onMessage;
+    this.onTicker = onTicker;
+    this.onMatch = onMatch;
   }
 
   async connect(): Promise<void> {
@@ -64,8 +66,12 @@ export class WsManager {
       } catch {
         return;
       }
-      if (msg.type === 'message') {
-        this.onMessage(msg);
+      if (msg.type === 'message' && msg.topic) {
+        if (msg.topic.startsWith('/market/match:')) {
+          this.onMatch(msg);
+        } else {
+          this.onTicker(msg);
+        }
       }
     });
 
@@ -82,20 +88,26 @@ export class WsManager {
   }
 
   private subscribeAll(): void {
-    // KuCoin supports batching symbols in one topic, send in chunks of 50
     const chunkSize = 50;
     for (let i = 0; i < this.symbols.length; i += chunkSize) {
       const chunk = this.symbols.slice(i, i + chunkSize);
-      const msg = {
-        id: `sub-${Date.now()}-${i}`,
+      const joined = chunk.join(',');
+      this.ws?.send(JSON.stringify({
+        id: `sub-ticker-${Date.now()}-${i}`,
         type: 'subscribe',
-        topic: `/market/ticker:${chunk.join(',')}`,
+        topic: `/market/ticker:${joined}`,
         privateChannel: false,
         response: true,
-      };
-      this.ws?.send(JSON.stringify(msg));
+      }));
+      this.ws?.send(JSON.stringify({
+        id: `sub-match-${Date.now()}-${i}`,
+        type: 'subscribe',
+        topic: `/market/match:${joined}`,
+        privateChannel: false,
+        response: true,
+      }));
     }
-    console.log(`[ws-manager] subscribed to ${this.symbols.length} symbols`);
+    console.log(`[ws-manager] subscribed ticker+match for ${this.symbols.length} symbols`);
   }
 
   private startHeartbeat(intervalMs: number): void {

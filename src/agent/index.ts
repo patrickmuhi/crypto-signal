@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { config } from './config';
 import { WsManager } from './ws-manager';
 import { PriceTracker } from './price-tracker';
+import { BuySellTracker } from './buy-sell-tracker';
 import { TickerRouter } from './ticker-router';
 import { alertEmitter } from './emitter';
 import { startSseServer } from './sse-server';
@@ -32,8 +33,13 @@ alertEmitter.on('alert', (event: AlertEvent) => {
 
 async function startAgent(symbols: string[]): Promise<WsManager> {
   const priceTracker = new PriceTracker(symbols);
-  const tickerRouter = new TickerRouter(priceTracker);
-  const manager = new WsManager(symbols, (msg) => tickerRouter.handle(msg));
+  const buySellTracker = new BuySellTracker();
+  const tickerRouter = new TickerRouter(priceTracker, buySellTracker);
+  const manager = new WsManager(
+    symbols,
+    (msg) => tickerRouter.handle(msg),
+    (msg) => buySellTracker.handle(msg),
+  );
   await manager.connect();
   return manager;
 }

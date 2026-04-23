@@ -6,6 +6,7 @@ export interface AlertEvent {
   baselinePrice: number;
   pctChange: number;      // actual % change (signed)
   timestamp: number;      // unix ms
+  buySellRatio?: number;  // buy vol / sell vol over last 60s; >1 = buy pressure
 }
 
 export interface TickerData {
