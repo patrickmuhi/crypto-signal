@@ -55,4 +55,15 @@ export class BuySellTracker {
     if (sellVol === 0) return buyVol > 0 ? 99 : null;
     return Math.min(buyVol / sellVol, 99);
   }
+
+  getVolume(symbol: string): number | null {
+    const entries = this.trades.get(symbol);
+    if (!entries || entries.length === 0) return null;
+
+    const cutoff = Date.now() - WINDOW_MS;
+    const recent = entries.filter(e => e.ts >= cutoff);
+    if (recent.length === 0) return null;
+
+    return recent.reduce((sum, e) => sum + e.size, 0);
+  }
 }

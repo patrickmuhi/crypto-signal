@@ -29,6 +29,9 @@ async function sendTelegram(alert: AlertEvent): Promise<void> {
   const ratioLine = alert.buySellRatio != null
     ? `B/S Ratio: ${alert.buySellRatio.toFixed(2)} (${alert.buySellRatio >= 1.5 ? 'buy pressure' : alert.buySellRatio <= 0.7 ? 'sell pressure' : 'balanced'})`
     : null;
+  const volumeLine = alert.volume != null
+    ? `Volume (60s): ${alert.volume.toFixed(4)}`
+    : null;
 
   const lines = [
     `${emoji} *${alert.symbol}*`,
@@ -37,6 +40,7 @@ async function sendTelegram(alert: AlertEvent): Promise<void> {
     `Baseline: $${alert.baselinePrice.toFixed(4)}`,
   ];
   if (ratioLine) lines.push(ratioLine);
+  if (volumeLine) lines.push(volumeLine);
   const text = lines.join('\n');
 
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`

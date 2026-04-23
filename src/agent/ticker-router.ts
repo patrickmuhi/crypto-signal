@@ -32,11 +32,13 @@ export class TickerRouter {
     const alert = detect(state, this.tracker);
     if (alert) {
       alert.buySellRatio = this.buySellTracker.getRatio(symbol) ?? undefined;
+      alert.volume = this.buySellTracker.getVolume(symbol) ?? undefined;
       const ratioStr = alert.buySellRatio != null ? ` | B/S ratio: ${alert.buySellRatio.toFixed(2)}` : '';
+      const volStr = alert.volume != null ? ` | vol(60s): ${alert.volume.toFixed(4)}` : '';
       console.log(
         `[alert] ${alert.symbol} ${alert.direction} ${alert.thresholdPct}% | ` +
         `price: ${alert.currentPrice} | baseline: ${alert.baselinePrice} | ` +
-        `change: ${alert.pctChange.toFixed(2)}%${ratioStr}`
+        `change: ${alert.pctChange.toFixed(2)}%${ratioStr}${volStr}`
       );
       emitAlert(alert).catch((err: Error) => console.error('[emitter] error:', err.message));
     }

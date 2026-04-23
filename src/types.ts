@@ -7,6 +7,7 @@ export interface AlertEvent {
   pctChange: number;      // actual % change (signed)
   timestamp: number;      // unix ms
   buySellRatio?: number;  // buy vol / sell vol over last 60s; >1 = buy pressure
+  volume?: number;        // total trade volume (buy + sell) over last 60s
 }
 
 export interface TickerData {
