@@ -204,6 +204,8 @@ export const alertDb = {
 };
 
 // Schedule monthly wipe: 1st of each month at midnight (local time)
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
 function msUntilNextMonthStart(): number {
   const now  = new Date();
   const next = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
@@ -215,11 +217,18 @@ function scheduleMonthlyWipe(): void {
   const next  = new Date(Date.now() + delay);
   console.log(`[db] monthly wipe scheduled for ${next.toLocaleString()} (in ${Math.round(delay / 3600000)}h)`);
 
+  const timeoutDelay = Math.min(delay, MAX_TIMEOUT_MS);
+
   setTimeout(() => {
+    if (delay > MAX_TIMEOUT_MS) {
+      scheduleMonthlyWipe();
+      return;
+    }
+
     alertDb.wipe();
     // Re-schedule for the 1st of the following month
     scheduleMonthlyWipe();
-  }, delay);
+  }, timeoutDelay);
 }
 
 scheduleMonthlyWipe();

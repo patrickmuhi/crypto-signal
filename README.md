@@ -129,10 +129,10 @@ The agent runs a small HTTP server that streams alerts to any frontend in real t
 ### Base URL
 
 ```
-http://<your-server-ip>:5007
+http://<your-server-ip>:3003
 ```
 
-Use `localhost:5007` during local development. The port is set via `SSE_PORT` in `.env`.
+Use `localhost:3003` during local development. The port is set via `SSE_PORT` in `.env`.
 
 ### Endpoints
 
@@ -194,7 +194,7 @@ Use `localhost:5007` during local development. The port is set via `SSE_PORT` in
 
 ```js
 async function loadHistory(limit = 100) {
-  const res  = await fetch(`http://<your-server-ip>:5007/alerts/history?limit=${limit}`);
+  const res  = await fetch(`http://<your-server-ip>:3003/alerts/history?limit=${limit}`);
   const json = await res.json();
   // { total: 412, limit: 100, offset: 0, data: [ ...AlertEvent ] }
   return json.data;
@@ -206,7 +206,7 @@ async function loadHistory(limit = 100) {
 `EventSource` is built into every browser — no library needed. It auto-reconnects if the connection drops.
 
 ```js
-const es = new EventSource('http://<your-server-ip>:5007/alerts');
+const es = new EventSource('http://<your-server-ip>:3003/alerts');
 
 es.addEventListener('alert', (e) => {
   const alert = JSON.parse(e.data);
@@ -237,7 +237,7 @@ es.close();
 <body>
   <ul id="feed"></ul>
   <script>
-    const BASE = 'http://<your-server-ip>:5007';
+    const BASE = 'http://<your-server-ip>:3003';
     const feed = document.getElementById('feed');
 
     function renderAlert(alert) {
@@ -268,7 +268,7 @@ es.close();
 ```tsx
 import { useEffect, useState } from 'react';
 
-const BASE = 'http://<your-server-ip>:5007';
+const BASE = 'http://<your-server-ip>:3003';
 
 interface AlertEvent {
   symbol: string;
@@ -324,17 +324,17 @@ export function AlertFeed() {
 ### 5. Health check
 
 ```js
-const res  = await fetch('http://<your-server-ip>:5007/health');
+const res  = await fetch('http://<your-server-ip>:3003/health');
 const data = await res.json();
 // { status: "ok", clients: 2, stored: 843 }
 ```
 
 ### Firewall
 
-Open port `5007` on your Hetzner server:
+Open port `3003` on your Hetzner server:
 
 ```bash
-ufw allow 5007/tcp
+ufw allow 3003/tcp
 ```
 
 `Access-Control-Allow-Origin: *` is set on all endpoints so there are no CORS issues from any frontend origin.

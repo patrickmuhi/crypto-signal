@@ -9,7 +9,8 @@
       "watch": false,
       "max_memory_restart": "256M",
       "env": {
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "SSE_PORT": "3003"
       }
     }
   ]

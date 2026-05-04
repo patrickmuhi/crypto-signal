@@ -1,10 +1,13 @@
-name: Deploy to Hetzner
+name: Deploy to EC2
 
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
@@ -15,186 +18,240 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to Hetzner Server
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy to EC2 via SSH
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEPLOY_GITHUB_TOKEN: ${{ secrets.DEPLOY_GITHUB_TOKEN }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER || 'ubuntu' }}
+          DEPLOY_GITHUB_TOKEN: ${{ github.token }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DEVICE_IP: ${{ secrets.DEVICE_IP }}
           SSE_PORT: ${{ secrets.SSE_PORT }}
           NODE_ENV: ${{ secrets.NODE_ENV }}
+          LETSENCRYPT_EMAIL: ${{ secrets.LETSENCRYPT_EMAIL }}
           PM2_APP_NAME: ${{ secrets.PM2_APP_NAME }}
-        with:
-          host: ${{ secrets.HETZNER_HOST }}
-          username: ${{ secrets.HETZNER_USER }}
-          password: ${{ secrets.HETZNER_PASSWORD }}
-          port: ${{ secrets.HETZNER_PORT || 22 }}
-          timeout: 30s
-          debug: true
-          envs: GITHUB_TOKEN,DEPLOY_GITHUB_TOKEN,TELEGRAM_TOKEN,TELEGRAM_CHAT_ID,DEVICE_IP,SSE_PORT,NODE_ENV,PM2_APP_NAME
-          script: |
-            set -eu
+          GH_REPOSITORY: ${{ github.repository }}
+          EC2_APP_PATH: ${{ secrets.EC2_APP_PATH || '/home/ubuntu/apps/crypto-signal' }}
+        run: |
+          [ -n "$EC2_HOST" ] || { echo "EC2_HOST secret is not set"; exit 1; }
 
-            echo "👤 Current user: $(whoami)"
-            echo "🏠 Home directory: $HOME"
-            echo "📂 Current directory: $(pwd)"
+          # Build the script that will run on EC2.
+          {
+            printf '#!/bin/bash\nset -e\n\n'
+            printf 'export HOME=$(getent passwd "$(id -un)" | cut -d: -f6)\n'
+            printf 'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"\n'
+            printf '[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"\n'
+            printf 'export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"\n\n'
+            printf 'export DEPLOY_GITHUB_TOKEN=%q\n' "$DEPLOY_GITHUB_TOKEN"
+            printf 'export TELEGRAM_TOKEN=%q\n'      "$TELEGRAM_TOKEN"
+            printf 'export TELEGRAM_CHAT_ID=%q\n'   "$TELEGRAM_CHAT_ID"
+            printf 'export DEVICE_IP=%q\n'          "${DEVICE_IP:-}"
+            printf 'export SSE_PORT=%q\n'           "${SSE_PORT:-3003}"
+            printf 'export NODE_ENV=%q\n'           "${NODE_ENV:-production}"
+            printf 'export LETSENCRYPT_EMAIL=%q\n'  "${LETSENCRYPT_EMAIL:-}"
+            printf 'export PM2_APP_NAME=%q\n'       "${PM2_APP_NAME:-kucoin-agent}"
+            printf 'export GH_REPOSITORY=%q\n'      "$GH_REPOSITORY"
+            printf 'export APP_PATH_RAW=%q\n'       "$EC2_APP_PATH"
+            printf '\n'
+          } > /tmp/deploy.sh
 
-            APP_PATH_RAW="${{ secrets.HETZNER_APP_PATH || '~/apps/crypto-signal' }}"
+          cat >> /tmp/deploy.sh << 'DEPLOY_SCRIPT'
+          echo "=== Deploy started at $(date) ==="
+          echo "User: $(whoami)  Node: $(node --version 2>/dev/null)  npm: $(npm --version 2>/dev/null)"
 
-            if [[ "$APP_PATH_RAW" == ~* ]]; then
-              APP_PATH="${APP_PATH_RAW/#\~/$HOME}"
-            else
-              APP_PATH="$APP_PATH_RAW"
-            fi
+          if [[ "$APP_PATH_RAW" == ~* ]]; then
+            APP_PATH="${APP_PATH_RAW/#\~/$HOME}"
+          else
+            APP_PATH="$APP_PATH_RAW"
+          fi
+          [[ "$APP_PATH" == /* ]] || APP_PATH="$(pwd)/$APP_PATH"
+          echo "Target path: $APP_PATH"
 
-            if [[ "$APP_PATH" != /* ]]; then
-              APP_PATH="$(pwd)/$APP_PATH"
-            fi
-
-            echo "📍 Target application path: $APP_PATH"
-
-            if [ ! -d "$APP_PATH" ]; then
-              echo "📁 Directory doesn't exist yet. Creating directory structure..."
-              PARENT_DIR=$(dirname "$APP_PATH")
-              echo "📂 Creating parent directory: $PARENT_DIR"
-              mkdir -p "$PARENT_DIR" || {
-                echo "❌ Failed to create parent directory: $PARENT_DIR"
-                exit 1
-              }
-
-              echo "📥 Cloning repository..."
-              REPO_URL="https://github.com/${{ github.repository }}.git"
-
-              if [ -n "$GITHUB_TOKEN" ] || [ -n "$DEPLOY_GITHUB_TOKEN" ]; then
-                TOKEN="${GITHUB_TOKEN:-$DEPLOY_GITHUB_TOKEN}"
-                echo "   Using token authentication"
-                CRED_HELPER=$(mktemp)
-                echo "#!/bin/sh" > "$CRED_HELPER"
-                echo "echo username=token" >> "$CRED_HELPER"
-                echo "echo password=$TOKEN" >> "$CRED_HELPER"
-                chmod +x "$CRED_HELPER"
-                GIT_TERMINAL_PROMPT=0 git -c credential.helper="!$CRED_HELPER" clone "$REPO_URL" "$APP_PATH" || {
-                  echo "❌ Failed to clone repository with token"
-                  rm -f "$CRED_HELPER"
-                  exit 1
-                }
-                rm -f "$CRED_HELPER"
-                cd "$APP_PATH"
-                git remote set-url origin "$REPO_URL"
-                cd -
+          if [ ! -d "$APP_PATH" ]; then
+            echo "First deploy - cloning repository..."
+            APP_PARENT="$(dirname "$APP_PATH")"
+            if [ ! -d "$APP_PARENT" ]; then
+              if mkdir -p "$APP_PARENT" 2>/dev/null; then
+                :
               else
-                echo "   Trying SSH authentication..."
-                REPO_URL_SSH="git@github.com:${{ github.repository }}.git"
-                git clone "$REPO_URL_SSH" "$APP_PATH" || {
-                  echo "❌ Failed to clone repository"
-                  echo "   Add DEPLOY_GITHUB_TOKEN secret for private repos"
-                  exit 1
-                }
+                SUDO="$(command -v sudo || true)"
+                [ -n "$SUDO" ] || { echo "Cannot create $APP_PARENT and sudo is not available"; exit 1; }
+                SUDO="$SUDO -n"
+                $SUDO mkdir -p "$APP_PARENT"
+                $SUDO chown "$(id -u):$(id -g)" "$APP_PARENT"
               fi
-
-              echo "✅ Repository cloned successfully"
+            fi
+            if [ ! -w "$APP_PARENT" ]; then
+              SUDO="$(command -v sudo || true)"
+              [ -n "$SUDO" ] || { echo "$APP_PARENT is not writable and sudo is not available"; exit 1; }
+              SUDO="$SUDO -n"
+              $SUDO chown "$(id -u):$(id -g)" "$APP_PARENT"
+            fi
+            TOKEN="${DEPLOY_GITHUB_TOKEN:-}"
+            if [ -n "$TOKEN" ]; then
+              GIT_TERMINAL_PROMPT=0 git clone \
+                "https://x-access-token:${TOKEN}@github.com/${GH_REPOSITORY}.git" "$APP_PATH"
+              git -C "$APP_PATH" remote set-url origin "https://github.com/${GH_REPOSITORY}.git"
             else
-              echo "✅ Directory already exists"
+              git clone "git@github.com:${GH_REPOSITORY}.git" "$APP_PATH"
             fi
+          fi
 
-            if [ ! -d "$APP_PATH" ]; then
-              echo "❌ Directory still doesn't exist: $APP_PATH"
-              exit 1
-            fi
+          cd "$APP_PATH"
+          [ -d .git ] || { echo "Not a git repo in $APP_PATH"; exit 1; }
 
-            cd "$APP_PATH" || {
-              echo "❌ Failed to change to directory: $APP_PATH"
-              exit 1
-            }
+          echo "Fetching latest from main..."
+          TOKEN="${DEPLOY_GITHUB_TOKEN:-}"
+          if [ -n "$TOKEN" ]; then
+            git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GH_REPOSITORY}.git"
+            GIT_TERMINAL_PROMPT=0 git fetch origin
+            git remote set-url origin "https://github.com/${GH_REPOSITORY}.git"
+          else
+            git fetch origin
+          fi
+          git reset --hard origin/main
+          git clean -fd
+          echo "Now at: $(git rev-parse --short HEAD)"
 
-            echo "✅ Current directory: $(pwd)"
+          [ -d src ]          || { echo "src/ not found"; ls -la; exit 1; }
+          [ -f package.json ] || { echo "package.json not found"; exit 1; }
 
-            if [ ! -d .git ]; then
-              echo "⚠️  Warning: Not a git repository. Initializing..."
-              git init
-              git remote add origin "https://github.com/${{ github.repository }}.git" 2>/dev/null || \
-                git remote set-url origin "https://github.com/${{ github.repository }}.git"
-            fi
+          echo "Installing dependencies..."
+          LOCK_HASH=$(md5sum package-lock.json 2>/dev/null | cut -d' ' -f1 || echo "none")
+          HASH_FILE="/tmp/npm_lock_$(printf '%s' "$APP_PATH" | md5sum | cut -d' ' -f1)"
+          if [ -f "$HASH_FILE" ] && [ "$(cat "$HASH_FILE")" = "$LOCK_HASH" ] && [ -d node_modules ]; then
+            echo "Lock file unchanged - skipping npm ci"
+          else
+            npm ci --include=dev || npm install || { echo "npm install failed"; exit 1; }
+            echo "$LOCK_HASH" > "$HASH_FILE"
+          fi
 
-            echo "📥 Pulling latest changes from main..."
-            if [ -n "$GITHUB_TOKEN" ] || [ -n "$DEPLOY_GITHUB_TOKEN" ]; then
-              TOKEN="${GITHUB_TOKEN:-$DEPLOY_GITHUB_TOKEN}"
-              CRED_HELPER=$(mktemp)
-              echo "#!/bin/sh" > "$CRED_HELPER"
-              echo "echo username=token" >> "$CRED_HELPER"
-              echo "echo password=$TOKEN" >> "$CRED_HELPER"
-              chmod +x "$CRED_HELPER"
-              GIT_TERMINAL_PROMPT=0 git -c credential.helper="!$CRED_HELPER" fetch origin
-              rm -f "$CRED_HELPER"
-            else
-              git fetch origin
-            fi
-            git reset --hard origin/main
-            git clean -fd
+          echo "Building..."
+          npm run build || { echo "Build failed"; exit 1; }
+          [ -f dist/agent/index.js ] || { echo "dist/agent/index.js not found after build"; exit 1; }
 
-            echo "📋 Git status after pull:"
-            git status --short || true
-            echo "📁 Verifying src directory exists..."
-            if [ ! -d src ]; then
-              echo "❌ src directory not found after git pull!"
-              ls -la
-              exit 1
-            fi
-            echo "✅ src directory found"
+          echo "Writing .env..."
+          [ -n "${TELEGRAM_TOKEN:-}" ]    || { echo "Missing secret: TELEGRAM_TOKEN"; exit 1; }
+          [ -n "${TELEGRAM_CHAT_ID:-}" ]  || { echo "Missing secret: TELEGRAM_CHAT_ID"; exit 1; }
+          {
+            echo "TELEGRAM_TOKEN=${TELEGRAM_TOKEN}"
+            echo "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}"
+            echo "DEVICE_IP=${DEVICE_IP:-}"
+            echo "SSE_PORT=${SSE_PORT:-3003}"
+            echo "NODE_ENV=${NODE_ENV:-production}"
+          } > .env
 
-            echo "📄 Checking for package.json..."
-            if [ ! -f package.json ]; then
-              echo "❌ package.json not found in $(pwd)"
-              exit 1
-            fi
+          # Deploy nginx config.
+          NGINX_CONF="$APP_PATH/deploy/crypto.conf"
+          NGINX_DEST="/etc/nginx/sites-available/crypto.conf"
+          [ -f "$NGINX_CONF" ] || { echo "Missing nginx config: $NGINX_CONF"; exit 1; }
+          command -v nginx >/dev/null 2>&1 || { echo "nginx is not installed on this EC2 instance"; exit 1; }
 
-            echo "📦 Installing dependencies..."
-            echo "   Node version: $(node --version)"
-            echo "   npm version: $(npm --version)"
-            npm ci --include=dev || {
-              echo "❌ npm ci failed, trying npm install..."
-              npm install || {
-                echo "❌ npm install also failed"
-                exit 1
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ]; then
+            SUDO="$(command -v sudo || true)"
+            [ -n "$SUDO" ] || { echo "sudo is required to deploy nginx config"; exit 1; }
+            SUDO="$SUDO -n"
+          fi
+
+          echo "Deploying nginx config to $NGINX_DEST..."
+          ${SUDO:+$SUDO }mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+          ${SUDO:+$SUDO }mkdir -p /var/www/certbot
+
+          if [ ! -f /etc/letsencrypt/live/crypto.eviadesk.com/fullchain.pem ]; then
+            echo "TLS certificate missing - bootstrapping Let's Encrypt for crypto.eviadesk.com..."
+            cat > /tmp/crypto.bootstrap.conf <<'NGINX_BOOTSTRAP'
+          upstream cryptoSignal {
+              server 127.0.0.1:3003;
+              keepalive 32;
+          }
+
+          server {
+              listen 80;
+              listen [::]:80;
+
+              server_name crypto.eviadesk.com;
+
+              location /.well-known/acme-challenge/ {
+                  root /var/www/certbot;
               }
-            }
 
-            echo "🔧 Setting up .env file..."
-            if [ -z "${TELEGRAM_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-              echo "❌ Missing required secrets: TELEGRAM_TOKEN and TELEGRAM_CHAT_ID"
-              exit 1
-            fi
-            {
-              echo "TELEGRAM_TOKEN=${TELEGRAM_TOKEN}"
-              echo "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}"
-              echo "DEVICE_IP=${DEVICE_IP:-}"
-              echo "SSE_PORT=${SSE_PORT:-3001}"
-              echo "NODE_ENV=${NODE_ENV:-production}"
-            } > .env
-            echo "   ✅ .env file written"
+              location / {
+                  proxy_pass http://cryptoSignal;
+                  proxy_http_version 1.1;
 
-            export PM2_APP_NAME="${PM2_APP_NAME:-kucoin-agent}"
-
-            echo "🔄 Restarting application with PM2..."
-            if [ -f ecosystem.config.json ]; then
-              npx pm2 delete "$PM2_APP_NAME" 2>/dev/null || true
-              npx pm2 start ecosystem.config.json || {
-                echo "❌ Failed to start with ecosystem.config.json"
-                exit 1
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_set_header X-Forwarded-Host $host;
               }
-            else
-              echo "❌ ecosystem.config.json not found"
-              exit 1
+          }
+          NGINX_BOOTSTRAP
+            ${SUDO:+$SUDO }cp /tmp/crypto.bootstrap.conf "$NGINX_DEST"
+            ${SUDO:+$SUDO }ln -sf "$NGINX_DEST" /etc/nginx/sites-enabled/crypto.conf
+            ${SUDO:+$SUDO }rm -f /etc/nginx/sites-enabled/default
+            ${SUDO:+$SUDO }nginx -t
+            ${SUDO:+$SUDO }systemctl reload nginx
+
+            if ! command -v certbot >/dev/null 2>&1; then
+              echo "Installing certbot..."
+              ${SUDO:+$SUDO }apt-get update
+              ${SUDO:+$SUDO }apt-get install -y certbot
             fi
 
-            npx pm2 save
+            CERTBOT_EMAIL_ARGS=(--register-unsafely-without-email)
+            if [ -n "${LETSENCRYPT_EMAIL:-}" ]; then
+              CERTBOT_EMAIL_ARGS=(--email "$LETSENCRYPT_EMAIL")
+            fi
 
-            echo "📊 PM2 Status:"
-            npx pm2 status
+            ${SUDO:+$SUDO }certbot certonly \
+              --webroot \
+              --webroot-path /var/www/certbot \
+              --domain crypto.eviadesk.com \
+              --agree-tos \
+              --non-interactive \
+              "${CERTBOT_EMAIL_ARGS[@]}"
+          else
+            echo "TLS certificate already exists - using existing Let's Encrypt cert"
+          fi
+
+          ${SUDO:+$SUDO }cp "$NGINX_CONF" "$NGINX_DEST"
+          ${SUDO:+$SUDO }ln -sf "$NGINX_DEST" /etc/nginx/sites-enabled/crypto.conf
+          ${SUDO:+$SUDO }rm -f /etc/nginx/sites-enabled/default
+          ${SUDO:+$SUDO }nginx -t
+          ${SUDO:+$SUDO }systemctl reload nginx
+          echo "nginx config deployed and reloaded"
+
+          PM2=$(which pm2 2>/dev/null || echo "npx pm2")
+          $PM2 delete "$PM2_APP_NAME" 2>/dev/null || true
+          [ -f ecosystem.config.json ] || { echo "ecosystem.config.json not found"; exit 1; }
+          $PM2 start ecosystem.config.json
+          $PM2 save
+
+          echo "=== PM2 status ==="
+          $PM2 status
+          echo "=== Deploy finished at $(date) ==="
+          DEPLOY_SCRIPT
+
+          bash -n /tmp/deploy.sh || { echo "Script syntax error - aborting"; exit 1; }
+
+          SSH="ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10"
+          TARGET="${SSH_USER:-ubuntu}@$EC2_HOST"
+
+          echo "Copying deploy script to $TARGET..."
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            /tmp/deploy.sh "$TARGET:/tmp/deploy_crypto_signal.sh"
+
+          echo "Running deploy on $TARGET..."
+          $SSH "$TARGET" 'bash /tmp/deploy_crypto_signal.sh'
 
       - name: Deployment Summary
-        run: |
-          echo "✅ Deployment completed successfully!"
-          echo "🚀 kucoin-agent should be running on Hetzner server"
+        run: echo "Deployment completed successfully!"

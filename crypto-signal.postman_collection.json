@@ -1,0 +1,303 @@
+{
+  "info": {
+    "name": "Crypto Signal API",
+    "_postman_id": "crypto-signal-collection",
+    "description": "API collection for the Crypto Signal SSE server. Base URL: http://localhost:3003 (configure SSE_PORT env var to change port).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3003",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Returns server status, number of connected SSE clients, and total alerts stored in the database."
+          },
+          "response": [
+            {
+              "name": "OK",
+              "status": "OK",
+              "code": 200,
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/health",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["health"]
+                }
+              },
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"status\": \"ok\",\n  \"clients\": 2,\n  \"stored\": 1540\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "SSE Alert Stream",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alerts",
+              "host": ["{{baseUrl}}"],
+              "path": ["alerts"]
+            },
+            "description": "Server-Sent Events stream. On connect, seeds the last 50 alerts from the database, then pushes live alerts as `event: alert` SSE frames. Sends a heartbeat ping every 25 seconds to keep the connection alive.\n\nNote: This is a streaming endpoint — use a browser, EventSource client, or curl with --no-buffer to consume it properly. Postman will buffer the full response."
+          },
+          "response": [
+            {
+              "name": "SSE Stream Example",
+              "status": "OK",
+              "code": 200,
+              "originalRequest": {
+                "method": "GET",
+                "header": [{"key": "Accept", "value": "text/event-stream"}],
+                "url": {
+                  "raw": "{{baseUrl}}/alerts",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["alerts"]
+                }
+              },
+              "header": [
+                {"key": "Content-Type", "value": "text/event-stream"},
+                {"key": "Cache-Control", "value": "no-cache"},
+                {"key": "Connection", "value": "keep-alive"}
+              ],
+              "body": "event: alert\ndata: {\"symbol\":\"BTCUSDT\",\"direction\":\"up\",\"thresholdPct\":2,\"currentPrice\":68400,\"baselinePrice\":67050,\"pctChange\":2.01,\"timestamp\":1714000000000,\"buySellRatio\":1.34,\"volume\":125000}\n\n: ping\n\n"
+            }
+          ]
+        },
+        {
+          "name": "Alert History (Paginated)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/history?limit=100&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["alerts", "history"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "description": "Number of results to return. Default: 100, max: 500."
+                },
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Number of results to skip. Default: 0."
+                }
+              ]
+            },
+            "description": "Returns paginated historical alerts across all symbols."
+          },
+          "response": [
+            {
+              "name": "OK",
+              "status": "OK",
+              "code": 200,
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/alerts/history?limit=100&offset=0",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["alerts", "history"],
+                  "query": [
+                    {"key": "limit", "value": "100"},
+                    {"key": "offset", "value": "0"}
+                  ]
+                }
+              },
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"total\": 1540,\n  \"limit\": 100,\n  \"offset\": 0,\n  \"data\": [\n    {\n      \"symbol\": \"BTCUSDT\",\n      \"direction\": \"up\",\n      \"thresholdPct\": 2,\n      \"currentPrice\": 68400,\n      \"baselinePrice\": 67050,\n      \"pctChange\": 2.01,\n      \"timestamp\": 1714000000000,\n      \"buySellRatio\": 1.34,\n      \"volume\": 125000\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Alert History by Symbol",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/history/BTCUSDT?days=30&limit=200",
+              "host": ["{{baseUrl}}"],
+              "path": ["alerts", "history", "BTCUSDT"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30",
+                  "description": "How many days back to query. Default: 30, min: 1."
+                },
+                {
+                  "key": "limit",
+                  "value": "200",
+                  "description": "Maximum number of results to return (optional)."
+                }
+              ]
+            },
+            "description": "Returns historical alerts for a specific symbol. Replace `BTCUSDT` in the path with any valid symbol."
+          },
+          "response": [
+            {
+              "name": "OK",
+              "status": "OK",
+              "code": 200,
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/alerts/history/BTCUSDT?days=30",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["alerts", "history", "BTCUSDT"],
+                  "query": [{"key": "days", "value": "30"}]
+                }
+              },
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"symbol\": \"BTCUSDT\",\n  \"data\": [\n    {\n      \"symbol\": \"BTCUSDT\",\n      \"direction\": \"up\",\n      \"thresholdPct\": 4,\n      \"currentPrice\": 68400,\n      \"baselinePrice\": 65770,\n      \"pctChange\": 4.0,\n      \"timestamp\": 1714000000000,\n      \"buySellRatio\": 1.62,\n      \"volume\": 230000\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Monthly Trends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/trends/monthly",
+              "host": ["{{baseUrl}}"],
+              "path": ["alerts", "trends", "monthly"]
+            },
+            "description": "Returns two lists: assets that have trended consistently upward (`alwaysUp`) and consistently downward (`alwaysDown`) over the last 30 days, with aggregate statistics per symbol."
+          },
+          "response": [
+            {
+              "name": "OK",
+              "status": "OK",
+              "code": 200,
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/alerts/trends/monthly",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["alerts", "trends", "monthly"]
+                }
+              },
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"alwaysUp\": [\n    {\n      \"symbol\": \"SOLUSDT\",\n      \"alertCount\": 18,\n      \"avgPctChange\": 3.12,\n      \"latestPrice\": 172.5,\n      \"latestTimestamp\": 1714000000000\n    }\n  ],\n  \"alwaysDown\": [\n    {\n      \"symbol\": \"SHIBUSDT\",\n      \"alertCount\": 9,\n      \"avgPctChange\": -2.87,\n      \"latestPrice\": 0.0000182,\n      \"latestTimestamp\": 1714000000000\n    }\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Signals",
+      "item": [
+        {
+          "name": "Always-Bullish Assets (Today)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/signals/always-bullish?minSignals=2",
+              "host": ["{{baseUrl}}"],
+              "path": ["signals", "always-bullish"],
+              "query": [
+                {
+                  "key": "minSignals",
+                  "value": "2",
+                  "description": "Minimum number of bullish signals required. Default: 2, min: 1."
+                }
+              ]
+            },
+            "description": "Returns assets that have received only bullish (upward) signals today, grouped with their individual alerts. Use `minSignals` to filter out assets with very few signals."
+          },
+          "response": [
+            {
+              "name": "OK",
+              "status": "OK",
+              "code": 200,
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/signals/always-bullish?minSignals=2",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["signals", "always-bullish"],
+                  "query": [{"key": "minSignals", "value": "2"}]
+                }
+              },
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"date\": \"2026-04-23\",\n  \"minSignals\": 2,\n  \"count\": 3,\n  \"assets\": [\n    {\n      \"symbol\": \"ETHUSDT\",\n      \"signalCount\": 4,\n      \"firstSignal\": 1714000000000,\n      \"lastSignal\": 1714050000000,\n      \"alerts\": [\n        {\n          \"symbol\": \"ETHUSDT\",\n          \"direction\": \"up\",\n          \"thresholdPct\": 2,\n          \"currentPrice\": 3200,\n          \"baselinePrice\": 3135,\n          \"pctChange\": 2.07,\n          \"timestamp\": 1714000000000,\n          \"buySellRatio\": 1.45,\n          \"volume\": 98000\n        }\n      ]\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Always-Bearish Assets (Today)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/signals/always-bearish?minSignals=2",
+              "host": ["{{baseUrl}}"],
+              "path": ["signals", "always-bearish"],
+              "query": [
+                {
+                  "key": "minSignals",
+                  "value": "2",
+                  "description": "Minimum number of bearish signals required. Default: 2, min: 1."
+                }
+              ]
+            },
+            "description": "Returns assets that have received only bearish (downward) signals today, grouped with their individual alerts. Use `minSignals` to filter out assets with very few signals."
+          },
+          "response": [
+            {
+              "name": "OK",
+              "status": "OK",
+              "code": 200,
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/signals/always-bearish?minSignals=2",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["signals", "always-bearish"],
+                  "query": [{"key": "minSignals", "value": "2"}]
+                }
+              },
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\n  \"date\": \"2026-04-23\",\n  \"minSignals\": 2,\n  \"count\": 1,\n  \"assets\": [\n    {\n      \"symbol\": \"SHIBUSDT\",\n      \"signalCount\": 3,\n      \"firstSignal\": 1714000000000,\n      \"lastSignal\": 1714040000000,\n      \"alerts\": [\n        {\n          \"symbol\": \"SHIBUSDT\",\n          \"direction\": \"down\",\n          \"thresholdPct\": 2,\n          \"currentPrice\": 0.0000178,\n          \"baselinePrice\": 0.0000182,\n          \"pctChange\": -2.20,\n          \"timestamp\": 1714000000000,\n          \"buySellRatio\": 0.71,\n          \"volume\": 4500000000\n        }\n      ]\n    }\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

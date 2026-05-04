@@ -15,5 +15,5 @@ export const config = {
   reconnectDelayMs: 3000,
 
   // SSE server port — frontend connects here to receive alert stream
-  ssePort: Number(process.env.SSE_PORT ?? 3001),
+  ssePort: Number(process.env.SSE_PORT ?? 3003),
 } as const;
